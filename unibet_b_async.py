@@ -15,7 +15,7 @@ import json
 import re
 
 from unibet_event_link import link_from_event_payload
-from unibet_http import UNIBET_REQUEST_HEADERS, unibet_connector, warm_unibet_session
+from unibet_http import UNIBET_REQUEST_HEADERS, unibet_connector, unibet_trust_env, warm_unibet_session
 from datetime import datetime, timezone
 
 import pandas as pd
@@ -390,7 +390,7 @@ async def run_scrape():
         headers=UNIBET_REQUEST_HEADERS,
         connector=connector,
         timeout=aiohttp.ClientTimeout(total=30),
-        trust_env=True,
+        trust_env=unibet_trust_env(),
     ) as session:
         await warm_unibet_session(session)
         response = await fetch(session, url)

@@ -1,8 +1,11 @@
-"""En-têtes + warm-up session Unibet (réduit les 403 datacenter ; proxy via env)."""
+"""En-têtes + warm-up session Unibet (réduit les 403 datacenter ; proxy HTTP ou Tor via env)."""
 
 from __future__ import annotations
 
+import os
+
 import aiohttp
+from aiohttp.connector import BaseConnector
 
 # Même “empreinte” navigateur que des requêtes XHR depuis unibet.fr
 UNIBET_REQUEST_HEADERS: dict[str, str] = {
@@ -48,5 +51,33 @@ async def warm_unibet_session(session: aiohttp.ClientSession) -> None:
         pass
 
 
-def unibet_connector() -> aiohttp.TCPConnector:
+def use_tor() -> bool:
+    v = os.environ.get("UNIBET_USE_TOR", "").strip().lower()
+    return v in ("1", "true", "yes", "on")
+
+
+def tor_socks_url() -> str:
+    """SOCKS5 distant (résolution DNS côté proxy) — défaut port Tor."""
+    return os.environ.get("TOR_SOCKS_PROXY", "socks5h://127.0.0.1:9050").strip()
+
+
+def unibet_trust_env() -> bool:
+    """Sous Tor, désactivé pour éviter de chaîner HTTPS_PROXY en plus du SOCKS."""
+    return not use_tor()
+
+
+def unibet_connector() -> BaseConnector:
+    if use_tor():
+        try:
+            from aiohttp_socks import ProxyConnector
+        except ImportError as e:
+            raise ImportError(
+                "UNIBET_USE_TOR activé : installe aiohttp-socks (déjà dans requirements.txt)."
+            ) from e
+        return ProxyConnector.from_url(
+            tor_socks_url(),
+            limit=64,
+            limit_per_host=24,
+            ttl_dns_cache=600,
+        )
     return aiohttp.TCPConnector(limit=64, limit_per_host=24, ttl_dns_cache=600)
