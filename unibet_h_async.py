@@ -8,13 +8,13 @@ Couvert si présent sur Unibet :
   props joueur (buteur, paliers points / passes, multi-buts, etc.).
 """
 
-import aiohttp
 import asyncio
 import json
 import re
 
 from unibet_event_link import link_from_event_payload
-from unibet_http import UNIBET_REQUEST_HEADERS, unibet_connector, unibet_trust_env, warm_unibet_session
+from unibet_http import unibet_aiohttp_get
+from unibet_playwright import unibet_client_session
 from datetime import datetime, timezone
 
 import pandas as pd
@@ -496,19 +496,10 @@ def process_market(nom, date_str, tournoi, link, y):
 
 
 async def fetch(session, url):
-    try:
-        async with session.get(url, timeout=aiohttp.ClientTimeout(total=30)) as response:
-            response.raise_for_status()
-            return await response.text()
-    except aiohttp.ClientResponseError as e:
-        print(f"Erreur HTTP {e.status} lors de la récupération de {url}: {e.message}")
-        return None
-    except asyncio.TimeoutError:
-        print(f"Timeout lors de la récupération de {url}")
-        return None
-    except Exception as e:
-        print(f"Erreur lors de la récupération de {url}: {e}")
-        return None
+    get_text = getattr(session, "get_text", None)
+    if get_text is not None:
+        return await get_text(url)
+    return await unibet_aiohttp_get(session, url)
 
 
 async def fetch_event_data(session, event_id):
@@ -530,14 +521,7 @@ async def run_scrape():
         f"https://www.unibet.fr/zones/v3/sportnode/markets.json?"
         f"nodeId={UNIBET_SPORT_NODE_ID}&filter=R%25C3%25A9sultat&marketname=R%25C3%25A9sultat%2520du%2520match"
     )
-    connector = unibet_connector()
-    async with aiohttp.ClientSession(
-        headers=UNIBET_REQUEST_HEADERS,
-        connector=connector,
-        timeout=aiohttp.ClientTimeout(total=30),
-        trust_env=unibet_trust_env(),
-    ) as session:
-        await warm_unibet_session(session)
+    async with unibet_client_session() as session:
         response = await fetch(session, url)
         if response is None:
             print("Impossible de récupérer les données initiales (hockey)")

@@ -2,14 +2,23 @@
 
 Scrape **prématch** [Unibet.fr](https://www.unibet.fr) (tennis, foot, basket, hockey) → un JSON type `output.json` (`generated_at`, `sports`, `competitions`, `markets`, `props`, `url` par match).
 
+**VPS bloqué (403)** : **[mode Playwright](docs/vps-solutions.md)** (`UNIBET_USE_PLAYWRIGHT=1`, comme le PDF V120) ; ou proxy `UNIBET_PROXY` / SOCKS / VPN : **[docs/vps-solutions.md](docs/vps-solutions.md)**.
+
 ## En local
 
 ```bash
 python -m venv .venv
 source .venv/bin/activate   # Windows: .venv\Scripts\activate
 pip install -r requirements.txt
+python -m playwright install chromium   # une fois (Chromium pour UNIBET_USE_PLAYWRIGHT)
 python unibet_all_json.py              # écrit output.json à la racine
 python unibet_all_json.py --pretty   # JSON indenté
+```
+
+**Sur VPS** si aiohttp reste en 403 :
+
+```bash
+UNIBET_USE_PLAYWRIGHT=1 python unibet_all_json.py
 ```
 
 **Tor (optionnel)** — avec le daemon `tor` qui écoute en local (souvent `127.0.0.1:9050`) :
@@ -48,7 +57,9 @@ Avec SOCKS applicatif, **`HTTPS_PROXY` ne doit pas être défini** en même temp
 3. Variables optionnelles :
    - `OUTPUT_PATH` (défaut `/app/output.json`)
    - `SCRAPE_INTERVAL_SECONDS` : `0` = un run puis arrêt ; `3600` = scrape toutes les heures en boucle.
-   - **`HTTPS_PROXY` / `HTTP_PROXY`** : si tu vois des **HTTP 403** sur `zones/v3/sportnode/markets.json`, c’est souvent le **WAF / anti-bot** qui bloque les IP de datacenter (Railway, AWS, etc.). Le client HTTP utilise `trust_env=True` : défini un proxy **résidentiel ou mobile** (FR de préférence), par ex. `HTTPS_PROXY=http://user:pass@host:port`.
+   - **`UNIBET_USE_PLAYWRIGHT=1`** : requêtes via **Chromium** (comportement proche du PDF V120) ; Chromium est inclus dans le build Docker.
+   - **`UNIBET_PROXY`** ou **`UNIBET_HTTPS_PROXY`** : proxy HTTP(S) **explicite** (souvent **résidentiel / mobile**), ex. `UNIBET_PROXY=http://user:pass@host:port`.
+   - **`HTTPS_PROXY` / `HTTP_PROXY`** : pris en compte via `trust_env=True` **uniquement** si tu **ne** définis **pas** `UNIBET_PROXY` / SOCKS / Tor (sinon `trust_env` est désactivé pour éviter les doubles proxies).
    - **Tor via SOCKS** : `UNIBET_USE_TOR=1` + `aiohttp-socks`. Défaut : `TOR_SOCKS_PROXY=socks5h://127.0.0.1:9050`. **Ne pas** combiner avec `HTTPS_PROXY` si tu veux uniquement Tor (`trust_env` désactivé).
    - **SOCKS NordVPN / autre** : `UNIBET_SOCKS_PROXY=socks5h://…` ou `NORDVPN_SOCKS_HOST` + `NORDVPN_SOCKS_USER` + `NORDVPN_SOCKS_PASS` (voir section locale ci‑dessus). Même règle : pas de `HTTPS_PROXY` simultané.
    - **Limite Tor** : sorties Tor souvent bloquées par les bookmakers ; **limite NordVPN** : IP datacenter possible selon offre — pas de garantie contre les 403.
