@@ -1,8 +1,9 @@
-"""En-têtes + warm-up session Unibet (réduit les 403 datacenter ; proxy HTTP ou Tor via env)."""
+"""En-têtes + warm-up session Unibet (réduit les 403 datacenter ; proxy HTTP, SOCKS ou Tor via env)."""
 
 from __future__ import annotations
 
 import os
+from urllib.parse import quote
 
 import aiohttp
 from aiohttp.connector import BaseConnector
@@ -61,21 +62,45 @@ def tor_socks_url() -> str:
     return os.environ.get("TOR_SOCKS_PROXY", "socks5h://127.0.0.1:9050").strip()
 
 
+def _nordvpn_socks_url_from_env() -> str | None:
+    """Construit socks5h:// depuis les identifiants SOCKS NordVPN (évite une URL avec caractères spéciaux)."""
+    host = os.environ.get("NORDVPN_SOCKS_HOST", "").strip()
+    user = os.environ.get("NORDVPN_SOCKS_USER", "").strip()
+    password = os.environ.get("NORDVPN_SOCKS_PASS", "").strip()
+    if not (host and user and password):
+        return None
+    port = os.environ.get("NORDVPN_SOCKS_PORT", "1080").strip()
+    u = quote(user, safe="")
+    p = quote(password, safe="")
+    return f"socks5h://{u}:{p}@{host}:{port}"
+
+
+def effective_socks_proxy_url() -> str | None:
+    """URL SOCKS si le connecteur doit passer par Tor, UNIBET_SOCKS_PROXY ou variables NordVPN."""
+    if use_tor():
+        return tor_socks_url()
+    direct = os.environ.get("UNIBET_SOCKS_PROXY", "").strip()
+    if direct:
+        return direct
+    return _nordvpn_socks_url_from_env()
+
+
 def unibet_trust_env() -> bool:
-    """Sous Tor, désactivé pour éviter de chaîner HTTPS_PROXY en plus du SOCKS."""
-    return not use_tor()
+    """Désactivé dès qu’un SOCKS applicatif est utilisé (évite HTTPS_PROXY + SOCKS en double)."""
+    return effective_socks_proxy_url() is None
 
 
 def unibet_connector() -> BaseConnector:
-    if use_tor():
+    socks_url = effective_socks_proxy_url()
+    if socks_url:
         try:
             from aiohttp_socks import ProxyConnector
         except ImportError as e:
             raise ImportError(
-                "UNIBET_USE_TOR activé : installe aiohttp-socks (déjà dans requirements.txt)."
+                "Proxy SOCKS requis : installe aiohttp-socks (déjà dans requirements.txt)."
             ) from e
         return ProxyConnector.from_url(
-            tor_socks_url(),
+            socks_url,
             limit=64,
             limit_per_host=24,
             ttl_dns_cache=600,
