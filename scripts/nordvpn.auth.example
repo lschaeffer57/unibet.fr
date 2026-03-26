@@ -1,7 +1,0 @@
-# Copier vers /etc/openvpn/client/nordvpn.auth (deux lignes seulement, sans #)
-# Ligne 1 : identifiant « service » (my.nordaccount.com → Identifiants de service)
-# Ligne 2 : mot de passe service
-#
-# exemple :
-# Abc123xyzServiceUser
-# xyzSecretServicePass

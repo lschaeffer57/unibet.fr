@@ -1,6 +1,0 @@
-aiohttp
-aiohttp-socks
-playwright
-orjson
-pandas
-pytz

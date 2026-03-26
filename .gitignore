@@ -2,13 +2,7 @@ __pycache__/
 *.py[cod]
 .Python
 .venv/
-
-# Sorties régénérables (lancer: python unibet_all_json.py)
-output.json
-unibet_all.json
-*_raw.json
-
-# OpenVPN NordVPN (ne jamais committer)
-nordvpn.auth
-**/nordvpn.auth
-*.ovpn
+venv/
+.env
+.env.*
+*.json
