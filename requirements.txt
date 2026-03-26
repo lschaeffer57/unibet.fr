@@ -1,0 +1,2 @@
+# Dépendances du script ; compléter si tu ajoutes les modules unibet_* locaux.
+orjson>=3.9.0
