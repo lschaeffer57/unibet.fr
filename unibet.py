@@ -994,13 +994,6 @@ def cmd_serve(_a=None):
 
     # ── Auto-session manager (probe + re-capture périodique) ──────────────────
 
-    has_creds = bool(
-        (os.environ.get("UNIBET_SESSION_JSON_B64") or "").strip()
-        or (os.environ.get("UNIBET_SESSION_JSON")   or "").strip()
-        or (os.environ.get("UNIBET_COOKIE")          or "").strip()
-        or sess_file.exists()
-    )
-
     def _probe_ok() -> bool:
         from unibet_client import probe_lvs_session
         ok, msg = probe_lvs_session(sess_file)
@@ -1016,21 +1009,31 @@ def cmd_serve(_a=None):
             print(f"[unibet serve] capture: {e}", file=sys.stderr)
             return False
 
-    if has_creds:
-        probe_interval = float(os.environ.get("UNIBET_SESSION_PROBE_INTERVAL_S", "3600"))
+    # Session manager toujours actif — capture une session visiteur si absente
+    probe_interval = float(os.environ.get("UNIBET_SESSION_PROBE_INTERVAL_S", "3600"))
 
-        def _auto_session_manager():
+    def _auto_session_manager():
+        # Si pas de session (ni env vars ni fichier), en obtenir une via Playwright
+        if not (
+            (os.environ.get("UNIBET_SESSION_JSON_B64") or "").strip()
+            or (os.environ.get("UNIBET_SESSION_JSON") or "").strip()
+            or (os.environ.get("UNIBET_COOKIE") or "").strip()
+            or sess_file.exists()
+        ):
+            print("[unibet serve] aucune session — capture initiale…", flush=True)
+            _do_capture()
+        else:
             time.sleep(5)
             if not _probe_ok():
                 print("[unibet serve] session invalide → re-capture…", flush=True)
                 _do_capture()
-            while True:
-                time.sleep(probe_interval)
-                if not _probe_ok():
-                    print("[unibet serve] session expirée → re-capture…", flush=True)
-                    _do_capture()
+        while True:
+            time.sleep(probe_interval)
+            if not _probe_ok():
+                print("[unibet serve] session expirée → re-capture…", flush=True)
+                _do_capture()
 
-        threading.Thread(target=_auto_session_manager, daemon=True).start()
+    threading.Thread(target=_auto_session_manager, daemon=True).start()
 
     # ── Boucle de fetch continu ────────────────────────────────────────────────
 
