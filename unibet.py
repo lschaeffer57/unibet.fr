@@ -463,6 +463,10 @@ def run_capture(
         page.goto(landing, wait_until="domcontentloaded", timeout=120000)
         page.wait_for_timeout(wait_ms)
 
+        # Sauvegarde anticipée de la session dès que la page est chargée
+        # (permet au fetch loop de démarrer sans attendre la fin du scan API)
+        _save_session_from_ctx(ctx, token_box["x_lvs_hstoken"])
+
         # API automatique: récupère parents sport/compétition puis pagine /lvs-api/next
         def _collect_parent_ids_from_ept_node(node, out_set: set[str]) -> None:
             if isinstance(node, dict):
