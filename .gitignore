@@ -1,8 +1,15 @@
+# Python
 __pycache__/
 *.py[cod]
-.Python
 .venv/
 venv/
-.env
-.env.*
-*.json
+
+# Data / session (sensible)
+data/unibet_session.json
+data/unibet_odds_cache.json
+data/unibet_playwright_profile/
+ms-playwright/
+
+# Output
+unibet_output.json
+output.json
