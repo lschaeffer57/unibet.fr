@@ -268,6 +268,16 @@ def _extract_rows_from_lvs_items(data: dict, cap: dict, cap_i: int) -> list[dict
         elif isinstance(start_raw, (int, float)):
             start_ts = int(start_raw / 1000) if start_raw > 10_000_000_000 else int(start_raw)
 
+        # Extraction de la ligne (handicap/total) — Kambi stocke en millièmes (2500 → 2.5)
+        raw_line = m.get("line") if m else None
+        line_val = None
+        if raw_line is not None:
+            try:
+                v = float(raw_line)
+                line_val = round(v / 1000, 3) if v > 100 else round(v, 3)
+            except (TypeError, ValueError):
+                pass
+
         rows.append({
             "decimal": odd,
             "price_key": "price",
@@ -278,6 +288,7 @@ def _extract_rows_from_lvs_items(data: dict, cap: dict, cap_i: int) -> list[dict
             "match": match or None,
             "market": str(m.get("desc") or "").strip() or None,
             "selection": str(o.get("desc") or "").strip() or "Selection",
+            "line": line_val,
             "event_id": e_id,
             "market_id": m_id,
             "selection_id": oid,
@@ -655,15 +666,14 @@ def cmd_fast(a):
         workers=getattr(a, "workers", None) or None,
     )
     rows = _extract_flat_rows(payload)
+    grouped = _group_by_sport(rows)
     out = {
         "generated_at": datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S"),
-        "source": "unibet",
-        "cache_file": str(cache.resolve()),
-        "total_odds": len(rows),
-        "odds": rows,
+        "sports": grouped,
     }
     _write_json(a.out, out)
-    print(f"[unibet] fast: {len(rows)} cotes -> {a.out}", flush=True)
+    total = sum(d["total_rows"] for d in grouped.values())
+    print(f"[unibet] fast: {total} cotes -> {a.out}", flush=True)
 
 
 def cmd_flat(a):
@@ -762,6 +772,46 @@ def _read_flat(path: Path) -> dict:
     return json.loads(path.read_text(encoding="utf-8"))
 
 
+_HT_KEYWORDS = ("mi-temps", "1re mi", "2e mi", "halftime", "half time", "1st half", "2nd half")
+_DRAW_LABELS  = frozenset(("nul", "match nul", "n", "égalité", "draw", "x"))
+_OVER_LABELS  = frozenset(("plus de", "plus", "over", "+"))
+_UNDER_LABELS = frozenset(("moins de", "moins", "under", "-"))
+
+
+def _derive_period(market: str) -> str:
+    m = (market or "").lower()
+    return "HT" if any(kw in m for kw in _HT_KEYWORDS) else "FT"
+
+
+def _derive_side(selection: str, match: str) -> str:
+    sel = (selection or "").strip()
+    sl  = sel.lower()
+    if sl in _DRAW_LABELS:
+        return "X"
+    if sl in _OVER_LABELS:
+        return "Over"
+    if sl in _UNDER_LABELS:
+        return "Under"
+    if sl in ("w1", "1"):
+        return "W1"
+    if sl in ("w2", "2"):
+        return "W2"
+    # Séparer les équipes — supporte " - " et " vs " et " v "
+    sep = None
+    for s in (" - ", " vs ", " v "):
+        if s in (match or ""):
+            sep = s
+            break
+    if sep:
+        home, _, away = match.partition(sep)
+        home, away = home.strip(), away.strip()
+        if sel == home or home.startswith(sel) or sel.startswith(home):
+            return "W1"
+        if sel == away or away.startswith(sel) or sel.startswith(away):
+            return "W2"
+    return sel
+
+
 def _group_by_sport(rows: list[dict]) -> dict:
     """Regroupe les cotes plates en {sport: {total_rows, total_matches, competitions: {comp: [match_obj]}}}."""
     from collections import defaultdict
@@ -778,11 +828,32 @@ def _group_by_sport(rows: list[dict]) -> dict:
                            if r.get("start_ts") else None,
                 "markets": [],
             }
-        tree[sport][comp][mkey]["markets"].append({
+        sel    = (r.get("selection") or r.get("label") or "").strip()
+        period = _derive_period(r.get("market") or "")
+        side   = _derive_side(sel, match)
+
+        entry: dict = {
             "market":    r.get("market") or "",
-            "selection": r.get("selection") or r.get("label") or "",
+            "period":    period,
+            "selection": sel,
             "odds":      r.get("decimal"),
-        })
+            "side":      side,
+        }
+
+        # Ligne (handicap / total) — depuis raw data ou parsing du nom de marché
+        line = r.get("line")
+        if line is None and side in ("Over", "Under"):
+            m_name = r.get("market") or ""
+            lm = re.search(r'(\d+(?:[.,]\d+)?)', m_name)
+            if lm:
+                try:
+                    line = float(lm.group(1).replace(",", "."))
+                except ValueError:
+                    pass
+        if line is not None:
+            entry["line"] = line
+
+        tree[sport][comp][mkey]["markets"].append(entry)
 
     out = {}
     for sport, comps in sorted(tree.items()):
@@ -850,8 +921,7 @@ def cmd_serve(_a=None):
     @app.get("/odds")
     def odds(sport: str | None = None):
         data = _load_odds()
-        rows = data.get("odds") or []
-        grouped = _group_by_sport(rows)
+        grouped = data.get("sports") or {}
         if sport:
             matched = {k: v for k, v in grouped.items() if sport.lower() in k.lower()}
             if not matched:
@@ -861,9 +931,8 @@ def cmd_serve(_a=None):
 
     @app.get("/odds/sports")
     def odds_sports():
-        data  = _load_odds()
-        rows  = data.get("odds") or []
-        grp   = _group_by_sport(rows)
+        data = _load_odds()
+        grp  = data.get("sports") or {}
         return {
             "sports": [
                 {"name": k, "total_rows": v["total_rows"], "total_matches": v["total_matches"]}
@@ -1066,13 +1135,13 @@ def cmd_serve(_a=None):
                     mode=fetch_mode,
                 )
                 rows = _extract_flat_rows(payload)
+                grouped = _group_by_sport(rows)
                 _write_json(out_flat, {
                     "generated_at": datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S"),
-                    "source": "unibet",
-                    "total_odds": len(rows),
-                    "odds": rows,
+                    "sports": grouped,
                 })
-                print(f"[unibet serve] auto-fetch: {len(rows)} cotes → {out_flat}", flush=True)
+                total = sum(d["total_rows"] for d in grouped.values())
+                print(f"[unibet serve] auto-fetch: {total} cotes → {out_flat}", flush=True)
             except Exception as e:
                 print(f"[unibet serve] auto-fetch: {e}", file=sys.stderr)
                 # Si la session est KO, tenter une re-capture
