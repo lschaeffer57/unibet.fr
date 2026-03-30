@@ -832,12 +832,16 @@ def _group_by_sport(rows: list[dict]) -> dict:
         period = _derive_period(r.get("market") or "")
         side   = _derive_side(sel, match)
 
+        sid = r.get("selection_id")
         entry: dict = {
             "market":    r.get("market") or "",
             "period":    period,
             "selection": sel,
             "odds":      r.get("decimal"),
             "side":      side,
+            "outcome_id": sid,
+            "link_web":  f"https://www.unibet.fr/sport/redirect?betSlipSelections={sid}" if sid else None,
+            "link_app":  f"unibet://sport/redirect?betSlipSelections={sid}" if sid else None,
         }
 
         # Ligne (handicap / total) — depuis raw data ou parsing du nom de marché
